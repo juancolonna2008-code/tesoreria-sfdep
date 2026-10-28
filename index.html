@@ -1,5 +1,11 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
 <title>Tesorería SFDEP</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="escudo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap">
@@ -44,7 +50,9 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { background: var(--fondo); color: var(--tinta); font-family: var(--f-texto); font-size: 15px; line-height: 1.45; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--fondo); }
+body { margin: 0; background: var(--fondo); color: var(--tinta); font-family: var(--f-texto); font-size: 15px; line-height: 1.45; }
+img { max-width: 100%; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 3px solid var(--celeste); outline-offset: 2px; border-radius: 6px; }
@@ -243,12 +251,21 @@ body.solo-lectura .seg button { pointer-events: none; }
 
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--tinta); color: var(--superficie); padding: 10px 16px; border-radius: 8px; font-weight: 500; z-index: 60; box-shadow: var(--sombra); max-width: calc(100% - 32px); }
 .cargando { padding: 48px 0; text-align: center; color: var(--tinta-2); }
+.login { display: grid; place-items: center; padding-block: 48px; }
+.login-caja { width: min(380px, 100%); background: var(--superficie); border: 1px solid var(--linea); border-radius: 14px; padding: 28px 24px; display: grid; gap: 14px; justify-items: center; text-align: center; }
+.login-caja h2 { font-size: 30px; text-transform: uppercase; }
+.login-caja p { margin: 0; }
+.login-caja .campo, .login-caja .btn { width: 100%; justify-content: center; text-align: left; }
+.escudo.grande { width: 96px; height: 110px; padding: 8px; border-radius: 16px; }
+.login-error { color: var(--mal); font-weight: 600; }
 
 @media (prefers-reduced-motion: no-preference) {
   .ficha { animation: entra .18s ease-out; }
   @keyframes entra { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 }
 </style>
+</head>
+<body>
 
 <div class="franja" aria-hidden="true"></div>
 <header class="cabecera">
@@ -260,6 +277,7 @@ body.solo-lectura .seg button { pointer-events: none; }
     </div>
     <span class="badge-lectura">Solo lectura</span>
     <span class="estado-guardado" id="guardado" data-s="ok">Todo guardado</span>
+    <button class="btn" data-act="salir" id="btn-salir" hidden>Salir</button>
   </div>
 </header>
 <nav class="tabs" aria-label="Secciones">
@@ -283,7 +301,18 @@ body.solo-lectura .seg button { pointer-events: none; }
   </div>
 
   <main id="main">
-    <div class="cargando" id="cargando">Cargando los datos del club…</div>
+    <section class="login" id="login" hidden>
+      <form class="login-caja" id="form-login" novalidate>
+        <span class="escudo grande"><img id="login-escudo" alt="Escudo del club"></span>
+        <h2>Tesorería</h2>
+        <p class="muted">Ingresá la clave de la comisión para ver y cargar las cuotas.</p>
+        <div class="campo"><label for="clave">Clave</label><input type="password" id="clave" autocomplete="current-password" required></div>
+        <label class="check"><input type="checkbox" id="recordar" checked> Recordar en este dispositivo</label>
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+        <button class="btn primario" type="submit">Entrar</button>
+      </form>
+    </section>
+    <div class="cargando" id="cargando" hidden>Cargando los datos del club…</div>
 
     <section class="vista" id="v-resumen" hidden>
       <div class="titulo-vista">
@@ -376,7 +405,7 @@ const REPARTOS = {
 const CONFIG_BASE = { nombre: 'Sociedad de Fomento', sigla: 'SFDEP', porcActividad: 70, actividades: [], cuotas: {} };
 
 const S = {
-  db: null, dl: null, canWrite: true,
+  clave: '', ver: null, canWrite: true,
   config: null, cfgListo: false, socios: new Map(), sociosListo: false,
   vista: 'resumen', act: 'todas', mes: null,
   cobQ: '', cobFiltro: 'todos', socQ: '', socGrupo: 'todos', socEstado: 'activos',
@@ -465,6 +494,19 @@ function deudasDe(so) {
   return Object.entries(so.pagos || {}).filter(([, p]) => p && p.e === 'debe').sort(([a], [b]) => a.localeCompare(b)).map(([m, p]) => ({ mes: m, v: p.v || valorCuota(so, m) || 0 }));
 }
 
+/* ---------- Conexión con la planilla de Google ---------- */
+const API_URL = 'https://script.google.com/macros/s/AKfycbwnTLn2XV__ySAwkK_phwjRRZH32C4DQLOOtEwBsW2fhkelYNZqor9nQud-oTIDeKH_4A/exec';
+async function api(accion, extra = {}) {
+  const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ accion, clave: S.clave, ...extra }) });
+  const j = await r.json();
+  if (!j.ok) { const e = new Error(j.error); e.code = j.error; throw e; }
+  return j;
+}
+function anotarVersion(r) {
+  if (S.ver !== null && r && r.version === S.ver + 1) S.ver = r.version;
+  return r;
+}
+
 /* ---------- Escrituras ---------- */
 const colas = new Map();
 let pendientes = 0;
@@ -474,12 +516,12 @@ function marcar(s) {
   el.textContent = s === 'guardando' ? 'Guardando…' : s === 'error' ? 'No se pudo guardar' : 'Todo guardado';
 }
 function encolar(clave, fn) {
-  if (!S.canWrite || !S.db) { toast('Tenés acceso solo de lectura.'); return Promise.resolve(false); }
+  if (!S.canWrite || !S.clave) { toast('Ingresá con la clave para guardar cambios.'); return Promise.resolve(false); }
   pendientes++; marcar('guardando');
   const p = (colas.get(clave) || Promise.resolve()).then(fn).then(() => true, e => {
     console.error(e);
     marcar('error');
-    if (e?.code === 'invalid_argument') { S.canWrite = false; document.body.classList.add('solo-lectura'); toast('No tenés permiso para modificar estos datos.'); }
+    if (e?.code === 'clave') salir('La clave cambió. Ingresá la nueva.');
     else if (e?.code === 'quota_exceeded') toast('La base de datos está llena. Eliminá jugadores que ya no estén.');
     else toast('No se pudo guardar. Revisá la conexión e intentá de nuevo.');
     return false;
@@ -498,12 +540,12 @@ function escribirSocio(id, data) {
     S.socios.set(id, nuevo);
   }
   renderTodo();
-  return encolar(id, () => S.db.collection('socios').doc(id).update(data));
+  return encolar(id, () => api('guardarSocio', { id, datos: data }).then(anotarVersion));
 }
 function guardarConfig(nueva) {
   S.config = nueva;
   renderTodo();
-  return encolar('config', () => S.db.doc('config/club').set(nueva));
+  return encolar('config', () => api('guardarConfig', { config: nueva }).then(anotarVersion));
 }
 function cambiarEstado(id, mes, e) {
   const so = S.socios.get(id);
@@ -516,7 +558,8 @@ function cambiarEstado(id, mes, e) {
 /* ---------- Render general ---------- */
 function renderTodo() {
   const listo = S.cfgListo && S.sociosListo;
-  $('#cargando').hidden = listo || !S.db;
+  $('#cargando').hidden = listo || !S.clave;
+  $('.tabs').hidden = !listo;
   $('#club-nombre').textContent = cfg().nombre || 'Sociedad de Fomento';
   document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.vista === S.vista ? 'page' : 'false'));
   document.querySelectorAll('.vista').forEach(v => v.hidden = !listo || v.id !== 'v-' + S.vista);
@@ -874,12 +917,12 @@ async function guardarFicha(ev) {
   const dup = sociosArr().find(s => s.id !== id && datos.dni && s.dni === datos.dni && s.actividad === datos.actividad);
   if (dup) { err.textContent = `Ya hay un jugador con ese DNI en ${actNombre(datos.actividad)}: ${dup.nombre}.`; err.hidden = false; return; }
   if (id === 'nuevo') {
-    const ref = S.db.collection('socios').doc();
+    const nuevoId = 'n-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const doc = { ...datos, alta: S.mes || mesHoy(), pagos: {}, creado: new Date().toISOString() };
-    S.socios.set(ref.id, doc);
+    S.socios.set(nuevoId, { id: nuevoId, ...doc });
     cerrarFicha();
     renderTodo();
-    const ok = await encolar(ref.id, () => ref.set(doc));
+    const ok = await encolar(nuevoId, () => api('guardarSocio', { id: nuevoId, datos: doc }).then(anotarVersion));
     if (ok) toast(`${datos.nombre} quedó agregado a ${actNombre(datos.actividad)}.`);
   } else {
     cerrarFicha();
@@ -892,10 +935,13 @@ async function guardarFicha(ev) {
 function csv(filas) {
   return '﻿' + filas.map(f => f.map(c => { const s = String(c ?? ''); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(';')).join('\r\n');
 }
-async function descargar(nombre, data) {
-  if (!S.dl) { toast('La descarga no está disponible en esta vista.'); return; }
-  try { await S.dl.save({ filename: nombre, data }); toast('Planilla lista.'); }
-  catch (e) { if (e?.code !== 'declined') toast('No se pudo descargar la planilla.'); }
+function descargar(nombre, data) {
+  const url = URL.createObjectURL(new Blob([data], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Planilla descargada.');
 }
 function csvMes() {
   const filas = [['Actividad', 'Nombre y apellido', 'Grupo', 'DNI', 'Fecha de nacimiento', 'Estado', 'Valor cuota', `Actividad ${pctA()}%`, `SFDEP ${100 - pctA()}%`]];
@@ -951,6 +997,7 @@ document.addEventListener('click', async ev => {
   if (act !== 'cerrar-mes' && act !== 'eliminar') S.confirmar = null;
   switch (act) {
     case 'ir': ev.preventDefault(); irVista(el.dataset.v); break;
+    case 'salir': salir(); break;
     case 'set-act': S.act = el.dataset.id; renderTodo(); break;
     case 'mes-ant': case 'mes-sig': {
       const ms = meses(), i = ms.indexOf(S.mes) + (act === 'mes-ant' ? -1 : 1);
@@ -975,7 +1022,7 @@ document.addEventListener('click', async ev => {
       const id = S.ficha, nombre = S.socios.get(id)?.nombre;
       cerrarFicha();
       S.socios.delete(id); renderTodo();
-      if (await encolar(id, () => S.db.collection('socios').doc(id).delete())) toast(`${nombre} fue eliminado.`);
+      if (await encolar(id, () => api('borrarSocio', { id }).then(anotarVersion))) toast(`${nombre} fue eliminado.`);
       break;
     }
     case 'cerrar-mes': {
@@ -1065,7 +1112,15 @@ document.addEventListener('change', ev => {
 document.addEventListener('focusout', ev => {
   if (ev.target.closest?.('#aj-form') && S.vista === 'ajustes') setTimeout(() => { if (!$('#aj-form').contains(document.activeElement)) { leerAjustes(); } }, 0);
 });
-document.addEventListener('submit', ev => { if (ev.target.id === 'form-socio') guardarFicha(ev); });
+document.addEventListener('submit', ev => {
+  if (ev.target.id === 'form-socio') guardarFicha(ev);
+  if (ev.target.id === 'form-login') {
+    ev.preventDefault();
+    const clave = $('#clave').value.trim();
+    if (!clave) { mostrarLogin('Escribí la clave.'); return; }
+    entrar(clave, $('#recordar').checked);
+  }
+});
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && S.ficha) cerrarFicha(); });
 window.addEventListener('hashchange', () => {
   const h = (location.hash || '').slice(1);
@@ -1073,36 +1128,70 @@ window.addEventListener('hashchange', () => {
 });
 
 /* ---------- Arranque ---------- */
-async function iniciar() {
+async function cargar() {
+  const r = await api('cargar');
+  S.config = r.config || null;
+  if (S.config) { S.config.cuotas = S.config.cuotas || {}; S.config.actividades = S.config.actividades || []; }
+  S.socios = new Map((r.socios || []).map(s => [s.id, s]));
+  S.ver = r.version;
+  S.cfgListo = S.sociosListo = true;
+  ajustarMes();
+  renderTodo();
+}
+async function sondear() {
+  if (!S.clave || !S.sociosListo || pendientes || document.hidden) return;
+  try {
+    const r = await api('version');
+    if (r.version !== S.ver) await cargar();
+  } catch (e) {
+    if (e.code === 'clave') salir('La clave cambió. Ingresá la nueva.');
+  }
+}
+function mostrarLogin(mensaje) {
+  $('#login').hidden = false;
+  $('#cargando').hidden = true;
+  $('#btn-salir').hidden = true;
+  const err = $('#login-error');
+  err.textContent = mensaje || '';
+  err.hidden = !mensaje;
+  setTimeout(() => $('#clave')?.focus(), 30);
+}
+function salir(mensaje) {
+  S.clave = '';
+  try { localStorage.removeItem('tesoreria-clave'); } catch {}
+  S.cfgListo = S.sociosListo = false;
+  S.socios = new Map();
+  cerrarFicha();
+  renderTodo();
+  mostrarLogin(mensaje);
+}
+async function entrar(clave, recordar) {
+  S.clave = clave;
+  $('#login').hidden = true;
+  $('#cargando').hidden = false;
+  $('#cargando').textContent = 'Cargando los datos del club…';
+  try {
+    await cargar();
+    if (recordar) try { localStorage.setItem('tesoreria-clave', clave); } catch {}
+    $('#btn-salir').hidden = false;
+  } catch (e) {
+    S.clave = '';
+    mostrarLogin(e.code === 'clave' ? 'Clave incorrecta.' : 'No se pudo conectar. Revisá internet e intentá de nuevo.');
+  }
+}
+function iniciar() {
   const h = (location.hash || '').slice(1);
   if (['resumen', 'cobranza', 'socios', 'deudas', 'ajustes'].includes(h)) S.vista = h;
+  $('#login-escudo').src = $('.cabecera .escudo img').src;
   renderTodo();
-  const db = window.claude?.use ? await window.claude.use('db').catch(() => null) : null;
-  if (!db) {
-    $('#cargando').innerHTML = '<div class="vacio"><h3>No se pudo conectar con la base de datos</h3><p>Abrí el sistema desde su enlace de claude.ai, con tu cuenta iniciada.</p></div>';
-    $('#cargando').hidden = false;
-    return;
-  }
-  S.db = db;
-  window.claude.use('downloads').then(d => S.dl = d).catch(() => {});
-  window.claude.use('user').then(async u => {
-    if (!u) return;
-    const puede = await u.can('data.write').catch(() => null);
-    if (puede === false) { S.canWrite = false; document.body.classList.add('solo-lectura'); renderTodo(); }
-  }).catch(() => {});
-  const fallo = e => { console.error(e); $('#cargando').innerHTML = '<div class="vacio"><h3>Se cortó la conexión</h3><p>Recargá la página para volver a ver los datos.</p></div>'; $('#cargando').hidden = false; };
-  db.doc('config/club').onSnapshot(snap => {
-    S.config = snap.exists ? clon(snap.data()) : null;
-    if (S.config) { S.config.cuotas = S.config.cuotas || {}; S.config.actividades = S.config.actividades || []; }
-    S.cfgListo = true;
-    ajustarMes();
-    renderTodo();
-  }, fallo);
-  db.collection('socios').limit(1000).onSnapshot(snap => {
-    S.socios = new Map(snap.docs.map(d => [d.id, d.data()]));
-    S.sociosListo = true;
-    renderTodo();
-  }, fallo);
+  let guardada = '';
+  try { guardada = localStorage.getItem('tesoreria-clave') || ''; } catch {}
+  if (guardada) entrar(guardada, true);
+  else mostrarLogin();
+  setInterval(sondear, 20000);
+  document.addEventListener('visibilitychange', sondear);
 }
 iniciar();
 </script>
+</body>
+</html>

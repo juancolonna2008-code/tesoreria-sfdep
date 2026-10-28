@@ -8,13 +8,15 @@ Sistema de cuotas de la Sociedad de Fomento para las actividades La Vieja y Palo
 - **Deudas:** quién debe y qué meses, con la lista para copiar.
 - **Ajustes:** valor de la cuota por mes, porcentaje del reparto, actividades y planillas para descargar.
 
-## Dónde se usa
+## Cómo funciona
 
-La página funciona dentro de claude.ai, que le da la base de datos con los jugadores y los pagos. Este repositorio guarda el código y el escudo. **No incluye los datos de los jugadores.**
-
-Abierta fuera de claude.ai (por ejemplo, desde este repositorio), la página muestra el aviso "No se pudo conectar con la base de datos".
+- La página (`index.html`) se publica con GitHub Pages.
+- Los datos viven en una planilla de Google Drive del tesorero, no en este repositorio.
+- La página habla con la planilla a través de un script de Google Apps Script (`apps-script/Codigo.gs`), publicado como app web.
+- Para entrar hace falta la clave de la comisión. La clave está en la pestaña **Config**, celda **B2**, de la planilla. Para cambiarla, se escribe la nueva ahí y se avisa a la comisión.
 
 ## Archivos
 
 - `index.html`: la página completa, con el escudo incluido.
-- `escudo.png`: el escudo del club sacado del PDF original.
+- `escudo.png`: el escudo del club.
+- `apps-script/Codigo.gs`: el código del script de Google. Si se cambia, hay que pegarlo en el proyecto "Tesorería SFDEP - Conexión" y crear una nueva implementación.
